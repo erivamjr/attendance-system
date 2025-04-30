@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getSupabase } from "@/lib/supabase"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
 
 type Employee = {
   id: string
@@ -30,31 +32,103 @@ type AttendanceEntry = {
   observation: string
 }
 
+type Unit = {
+  id: string
+  name: string
+}
+
 export function AttendanceForm() {
   const [month, setMonth] = useState(new Date().getMonth() + 1 + "")
   const [year, setYear] = useState(new Date().getFullYear() + "")
   const [employees, setEmployees] = useState<Employee[]>([])
   const [attendanceData, setAttendanceData] = useState<AttendanceEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [unitId, setUnitId] = useState<string | null>(null)
   const [sheetId, setSheetId] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [units, setUnits] = useState<Unit[]>([])
+  const [selectedUnit, setSelectedUnit] = useState<string>("")
 
   // Recuperar informações do usuário da sessão
   useEffect(() => {
-    const userStr = sessionStorage.getItem("currentUser")
-    if (userStr) {
-      const user = JSON.parse(userStr)
-      setUnitId(user.unit_id)
+    try {
+      const userStr = sessionStorage.getItem("currentUser")
+      if (userStr) {
+        const user = JSON.parse(userStr)
+        setCurrentUser(user)
+
+        // Se o usuário for responsável, usar a unidade dele
+        if (user.role === "responsible" && user.unit_id) {
+          setUnitId(user.unit_id)
+          setSelectedUnit(user.unit_id)
+        }
+
+        // Se for admin, carregar todas as unidades
+        if (user.role === "admin") {
+          loadUnits()
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao recuperar usuário da sessão:", err)
+      setError("Erro ao recuperar informações do usuário.")
     }
   }, [])
+
+  // Carregar unidades para administradores
+  const loadUnits = async () => {
+    try {
+      const supabase = getSupabase()
+      const { data, error } = await supabase.from("units").select("id, name")
+
+      if (error) {
+        console.error("Erro ao carregar unidades:", error)
+        return
+      }
+
+      if (data && data.length > 0) {
+        setUnits(data)
+      }
+    } catch (err) {
+      console.error("Erro ao carregar unidades:", err)
+    }
+  }
+
+  // Atualizar unitId quando o admin selecionar uma unidade
+  useEffect(() => {
+    if (selectedUnit) {
+      setUnitId(selectedUnit)
+    }
+  }, [selectedUnit])
 
   // Carregar funcionários e dados de frequência
   useEffect(() => {
     async function fetchData() {
-      if (!unitId) return
+      if (!unitId) {
+        // Se não temos unitId, verificar se o usuário é admin
+        if (currentUser?.role === "admin") {
+          if (units.length > 0 && !selectedUnit) {
+            setError("Selecione uma unidade para visualizar a folha de frequência.")
+          } else {
+            setError("Carregando unidades disponíveis...")
+          }
+          setLoading(false)
+          return
+        } else if (!currentUser) {
+          // Ainda carregando o usuário
+          return
+        } else {
+          setError("Usuário sem unidade atribuída. Entre em contato com o administrador.")
+          setLoading(false)
+          return
+        }
+      }
 
       try {
         setLoading(true)
+        setError(null)
+
+        console.log("Buscando dados para a unidade:", unitId)
         const supabase = getSupabase()
 
         // Buscar funcionários da unidade
@@ -63,7 +137,87 @@ export function AttendanceForm() {
           .select("*")
           .eq("unit_id", unitId)
 
-        if (employeesError) throw employeesError
+        if (employeesError) {
+          console.error("Erro ao buscar funcionários:", employeesError)
+          setError(`Erro ao buscar funcionários: ${employeesError.message}`)
+          setLoading(false)
+          return
+        }
+
+        console.log("Funcionários encontrados:", employeesData?.length || 0)
+
+        // Se não há funcionários, criar alguns para teste
+        if (!employeesData || employeesData.length === 0) {
+          console.log("Criando funcionários de teste para a unidade")
+
+          // Buscar organização
+          const { data: org } = await supabase.from("organizations").select("id").single()
+
+          if (!org) {
+            setError("Organização não encontrada.")
+            setLoading(false)
+            return
+          }
+
+          // Criar funcionários de teste
+          const testEmployees = [
+            {
+              organization_id: org.id,
+              unit_id: unitId,
+              name: "João da Silva",
+              cpf: "123.456.789-00",
+              role: "Enfermeiro",
+              contract_type: "EFETIVO",
+            },
+            {
+              organization_id: org.id,
+              unit_id: unitId,
+              name: "Maria Oliveira",
+              cpf: "987.654.321-00",
+              role: "Médica",
+              contract_type: "EFETIVO",
+            },
+            {
+              organization_id: org.id,
+              unit_id: unitId,
+              name: "Pedro Santos",
+              cpf: "456.789.123-00",
+              role: "Técnico de Enfermagem",
+              contract_type: "TEMPORARIO",
+            },
+          ]
+
+          const { data: createdEmployees, error: createError } = await supabase
+            .from("employees")
+            .insert(testEmployees)
+            .select()
+
+          if (createError) {
+            console.error("Erro ao criar funcionários de teste:", createError)
+            setError(`Erro ao criar funcionários de teste: ${createError.message}`)
+            setLoading(false)
+            return
+          }
+
+          setEmployees(createdEmployees)
+
+          // Criar entradas vazias para os novos funcionários
+          setAttendanceData(
+            createdEmployees.map((employee) => ({
+              employeeId: employee.id,
+              absences: "0",
+              nightShift: "0",
+              overtime50: "0",
+              overtime100: "0",
+              onCall: "0",
+              vacation: "Não",
+              observation: "",
+            })),
+          )
+
+          setLoading(false)
+          return
+        }
 
         setEmployees(employeesData)
 
@@ -82,15 +236,22 @@ export function AttendanceForm() {
 
         // Se existir uma folha, buscar as entradas
         if (sheet) {
+          console.log("Folha encontrada:", sheet.id)
           setSheetId(sheet.id)
-          const supabase = getSupabase()
 
           const { data: entries, error: entriesError } = await supabase
             .from("frequency_entries")
             .select("*")
             .eq("sheet_id", sheet.id)
 
-          if (entriesError) throw entriesError
+          if (entriesError) {
+            console.error("Erro ao buscar entradas:", entriesError)
+            setError(`Erro ao buscar entradas: ${entriesError.message}`)
+            setLoading(false)
+            return
+          }
+
+          console.log("Entradas encontradas:", entries?.length || 0)
 
           // Mapear entradas para o formato do estado
           const entriesMap = new Map()
@@ -125,6 +286,7 @@ export function AttendanceForm() {
 
           setAttendanceData(attendanceEntries)
         } else {
+          console.log("Folha não encontrada, criando entradas vazias")
           // Criar entradas vazias para novos funcionários
           setSheetId(null)
           setAttendanceData(
@@ -142,13 +304,14 @@ export function AttendanceForm() {
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error)
+        setError(`Erro ao carregar dados: ${error instanceof Error ? error.message : String(error)}`)
       } finally {
         setLoading(false)
       }
     }
 
     fetchData()
-  }, [unitId, month, year])
+  }, [unitId, month, year, currentUser, selectedUnit, units.length])
 
   const handleInputChange = (employeeId: string, field: string, value: string) => {
     setAttendanceData((prev) =>
@@ -256,7 +419,7 @@ export function AttendanceForm() {
         const { data: newSheet, error: newSheetError } = await supabase
           .from("frequency_sheets")
           .insert({
-            organization_id: JSON.parse(sessionStorage.getItem("currentUser") || "{}").organization_id,
+            organization_id: currentUser?.organization_id,
             unit_id: unitId,
             month: Number.parseInt(month),
             year: Number.parseInt(year),
@@ -318,7 +481,7 @@ export function AttendanceForm() {
       // Registrar no log
       await supabase.from("submissions_log").insert({
         sheet_id: currentSheetId,
-        user_id: JSON.parse(sessionStorage.getItem("currentUser") || "{}").id,
+        user_id: currentUser?.id,
         action: "save_draft",
         timestamp: new Date().toISOString(),
       })
@@ -350,7 +513,7 @@ export function AttendanceForm() {
         .from("frequency_sheets")
         .update({
           status: "submitted",
-          submitted_by: JSON.parse(sessionStorage.getItem("currentUser") || "{}").id,
+          submitted_by: currentUser?.id,
           submitted_at: new Date().toISOString(),
         })
         .eq("id", sheetId)
@@ -360,7 +523,7 @@ export function AttendanceForm() {
       // Registrar no log
       await supabase.from("submissions_log").insert({
         sheet_id: sheetId,
-        user_id: JSON.parse(sessionStorage.getItem("currentUser") || "{}").id,
+        user_id: currentUser?.id,
         action: "submit",
         timestamp: new Date().toISOString(),
       })
@@ -376,6 +539,178 @@ export function AttendanceForm() {
         description: "Ocorreu um erro ao finalizar a folha.",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleInitializeData = async () => {
+    if (!unitId) {
+      toast({
+        title: "Erro",
+        description: "Selecione uma unidade primeiro.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      setLoading(true)
+      const supabase = getSupabase()
+
+      // Buscar organização
+      const { data: org, error: orgError } = await supabase.from("organizations").select("id").single()
+
+      if (orgError) {
+        // Criar organização se não existir
+        const { data: newOrg, error: newOrgError } = await supabase
+          .from("organizations")
+          .insert({
+            name: "Secretaria de Saúde",
+            slug: "saude",
+            logo_url: null,
+          })
+          .select()
+          .single()
+
+        if (newOrgError) {
+          toast({
+            title: "Erro",
+            description: `Erro ao criar organização: ${newOrgError.message}`,
+            variant: "destructive",
+          })
+          return
+        }
+
+        // Criar funcionários de teste
+        const testEmployees = [
+          {
+            organization_id: newOrg.id,
+            unit_id: unitId,
+            name: "João da Silva",
+            cpf: "123.456.789-00",
+            role: "Enfermeiro",
+            contract_type: "EFETIVO",
+          },
+          {
+            organization_id: newOrg.id,
+            unit_id: unitId,
+            name: "Maria Oliveira",
+            cpf: "987.654.321-00",
+            role: "Médica",
+            contract_type: "EFETIVO",
+          },
+          {
+            organization_id: newOrg.id,
+            unit_id: unitId,
+            name: "Pedro Santos",
+            cpf: "456.789.123-00",
+            role: "Técnico de Enfermagem",
+            contract_type: "TEMPORARIO",
+          },
+        ]
+
+        const { data: createdEmployees, error: createError } = await supabase
+          .from("employees")
+          .insert(testEmployees)
+          .select()
+
+        if (createError) {
+          toast({
+            title: "Erro",
+            description: `Erro ao criar funcionários: ${createError.message}`,
+            variant: "destructive",
+          })
+          return
+        }
+
+        setEmployees(createdEmployees)
+        setAttendanceData(
+          createdEmployees.map((employee) => ({
+            employeeId: employee.id,
+            absences: "0",
+            nightShift: "0",
+            overtime50: "0",
+            overtime100: "0",
+            onCall: "0",
+            vacation: "Não",
+            observation: "",
+          })),
+        )
+
+        toast({
+          title: "Sucesso",
+          description: "Dados inicializados com sucesso!",
+        })
+      } else {
+        // Organização existe, criar funcionários
+        const testEmployees = [
+          {
+            organization_id: org.id,
+            unit_id: unitId,
+            name: "João da Silva",
+            cpf: "123.456.789-00",
+            role: "Enfermeiro",
+            contract_type: "EFETIVO",
+          },
+          {
+            organization_id: org.id,
+            unit_id: unitId,
+            name: "Maria Oliveira",
+            cpf: "987.654.321-00",
+            role: "Médica",
+            contract_type: "EFETIVO",
+          },
+          {
+            organization_id: org.id,
+            unit_id: unitId,
+            name: "Pedro Santos",
+            cpf: "456.789.123-00",
+            role: "Técnico de Enfermagem",
+            contract_type: "TEMPORARIO",
+          },
+        ]
+
+        const { data: createdEmployees, error: createError } = await supabase
+          .from("employees")
+          .insert(testEmployees)
+          .select()
+
+        if (createError) {
+          toast({
+            title: "Erro",
+            description: `Erro ao criar funcionários: ${createError.message}`,
+            variant: "destructive",
+          })
+          return
+        }
+
+        setEmployees(createdEmployees)
+        setAttendanceData(
+          createdEmployees.map((employee) => ({
+            employeeId: employee.id,
+            absences: "0",
+            nightShift: "0",
+            overtime50: "0",
+            overtime100: "0",
+            onCall: "0",
+            vacation: "Não",
+            observation: "",
+          })),
+        )
+
+        toast({
+          title: "Sucesso",
+          description: "Dados inicializados com sucesso!",
+        })
+      }
+    } catch (error) {
+      console.error("Erro ao inicializar dados:", error)
+      toast({
+        title: "Erro",
+        description: `Erro ao inicializar dados: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -411,8 +746,74 @@ export function AttendanceForm() {
     "dezembro",
   ]
 
+  // Renderizar seletor de unidade para administradores
+  const renderUnitSelector = () => {
+    if (currentUser?.role === "admin") {
+      return (
+        <div className="mb-6">
+          <div className="grid w-full max-w-sm items-center gap-1.5">
+            <label htmlFor="unit-select" className="text-sm font-medium">
+              Selecione uma unidade
+            </label>
+            <Select value={selectedUnit} onValueChange={setSelectedUnit}>
+              <SelectTrigger id="unit-select">
+                <SelectValue placeholder="Selecione uma unidade" />
+              </SelectTrigger>
+              <SelectContent>
+                {units.map((unit) => (
+                  <SelectItem key={unit.id} value={unit.id}>
+                    {unit.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {!selectedUnit && (
+            <Button variant="outline" className="mt-2" onClick={handleInitializeData} disabled={!selectedUnit}>
+              Inicializar Dados
+            </Button>
+          )}
+        </div>
+      )
+    }
+    return null
+  }
+
+  if (error) {
+    return (
+      <>
+        {renderUnitSelector()}
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Erro</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </>
+    )
+  }
+
+  if (employees.length === 0) {
+    return (
+      <>
+        {renderUnitSelector()}
+        <Alert className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Sem funcionários</AlertTitle>
+          <AlertDescription>
+            Não há funcionários cadastrados para esta unidade.
+            <Button variant="outline" className="mt-2" onClick={handleInitializeData}>
+              Inicializar Dados
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </>
+    )
+  }
+
   return (
     <div className="space-y-6">
+      {renderUnitSelector()}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <div className="grid w-full max-w-sm items-center gap-1.5">
           <Select value={month} onValueChange={setMonth}>

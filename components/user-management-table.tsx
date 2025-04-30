@@ -1,3 +1,5 @@
+"use client"
+
 import { Edit, MoreHorizontal, Trash } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -11,57 +13,44 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { toast } from "@/components/ui/use-toast"
 
-// Dados de exemplo - em produção, viriam da API
-const users = [
-  {
-    id: 1,
-    name: "Maria Silva",
-    email: "maria.silva@example.com",
-    cpf: "123.456.789-00",
-    role: "Admin",
-    unit: "Secretaria de Saúde",
-    status: "Ativo",
-  },
-  {
-    id: 2,
-    name: "João Santos",
-    email: "joao.santos@example.com",
-    cpf: "987.654.321-00",
-    role: "Responsável",
-    unit: "UBS Central",
-    status: "Ativo",
-  },
-  {
-    id: 3,
-    name: "Ana Oliveira",
-    email: "ana.oliveira@example.com",
-    cpf: "456.789.123-00",
-    role: "Responsável",
-    unit: "UBS Jardim",
-    status: "Ativo",
-  },
-  {
-    id: 4,
-    name: "Carlos Ferreira",
-    email: "carlos.ferreira@example.com",
-    cpf: "789.123.456-00",
-    role: "Responsável",
-    unit: "UPA 24h",
-    status: "Ativo",
-  },
-  {
-    id: 5,
-    name: "Juliana Costa",
-    email: "juliana.costa@example.com",
-    cpf: "321.654.987-00",
-    role: "Responsável",
-    unit: "Hospital Municipal",
-    status: "Inativo",
-  },
-]
+type User = {
+  id: string
+  name: string
+  email: string
+  cpf: string
+  role: string
+  unit: string | null
+  status: string
+}
 
-export function UserManagementTable() {
+type UserManagementTableProps = {
+  users: User[]
+  onEdit: (user: User) => void
+  onToggleStatus: (userId: string, currentStatus: string) => void
+  onRefresh: () => void
+}
+
+export function UserManagementTable({ users, onEdit, onToggleStatus, onRefresh }: UserManagementTableProps) {
+  const handleToggleStatus = async (user: User) => {
+    try {
+      await onToggleStatus(user.id, user.status)
+
+      toast({
+        title: "Sucesso",
+        description: `Usuário ${user.status === "Ativo" ? "desativado" : "ativado"} com sucesso!`,
+      })
+    } catch (error) {
+      console.error("Erro ao alterar status do usuário:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao alterar o status do usuário.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <Table>
       <TableHeader>
@@ -83,8 +72,8 @@ export function UserManagementTable() {
               <br />
               <span className="text-xs text-muted-foreground">{user.cpf}</span>
             </TableCell>
-            <TableCell>{user.role}</TableCell>
-            <TableCell>{user.unit}</TableCell>
+            <TableCell>{user.role === "admin" ? "Admin" : "Responsável"}</TableCell>
+            <TableCell>{user.unit || "—"}</TableCell>
             <TableCell>
               <Badge
                 variant={user.status === "Ativo" ? "outline" : "secondary"}
@@ -104,11 +93,14 @@ export function UserManagementTable() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>Ações</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onEdit(user)}>
                     <Edit className="mr-2 h-4 w-4" />
                     Editar
                   </DropdownMenuItem>
-                  <DropdownMenuItem className={user.status === "Ativo" ? "text-red-600" : "text-green-600"}>
+                  <DropdownMenuItem
+                    className={user.status === "Ativo" ? "text-red-600" : "text-green-600"}
+                    onClick={() => handleToggleStatus(user)}
+                  >
                     <Trash className="mr-2 h-4 w-4" />
                     {user.status === "Ativo" ? "Desativar" : "Ativar"}
                   </DropdownMenuItem>

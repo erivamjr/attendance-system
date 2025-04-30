@@ -20,7 +20,7 @@ export default function AttendancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Preenchimento da Folha de Frequência</CardTitle>
-              <CardDescription>UBS Vila Nova - Maio 2025</CardDescription>
+              <CardDescription>Selecione a unidade e o período para preencher a folha</CardDescription>
             </CardHeader>
             <CardContent>
               <AttendanceForm />
@@ -32,7 +32,7 @@ export default function AttendancePage() {
           <Card>
             <CardHeader>
               <CardTitle>Visualização da Folha de Frequência</CardTitle>
-              <CardDescription>UBS Vila Nova - Maio 2025</CardDescription>
+              <CardDescription>Visualize a folha antes de finalizar</CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center">
               <div className="border p-4 text-center">

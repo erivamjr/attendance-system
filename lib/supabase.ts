@@ -4,67 +4,101 @@ import type { Database } from "@/types/supabase"
 // Verificar se estamos no lado do cliente
 const isClient = typeof window !== "undefined"
 
-// Obter as variáveis de ambiente ou do localStorage
-const getSupabaseCredentials = () => {
-  if (isClient) {
-    const url = localStorage.getItem("SUPABASE_URL")
-    const key = localStorage.getItem("SUPABASE_ANON_KEY")
+// Função que verifica se uma string é uma URL válida
+function isValidUrl(urlString: string | undefined | null): boolean {
+  if (!urlString) return false
 
-    if (url && key) {
-      return { url, key }
-    }
+  try {
+    // Tenta criar um objeto URL para verificar se a string é uma URL válida
+    new URL(urlString)
+    return true
+  } catch (error) {
+    return false
   }
+}
 
-  // Fallback para variáveis de ambiente
+// Criar um cliente mock para quando o Supabase não está configurado
+function createMockClient() {
+  console.warn("Using mock Supabase client. Supabase functionality will not work.")
+
   return {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-  }
+    from: () => ({
+      select: () => Promise.resolve({ data: null, error: new Error("Supabase not configured") }),
+      insert: () => Promise.resolve({ data: null, error: new Error("Supabase not configured") }),
+      update: () => Promise.resolve({ data: null, error: new Error("Supabase not configured") }),
+      delete: () => Promise.resolve({ data: null, error: new Error("Supabase not configured") }),
+      eq: () => ({ data: null, error: new Error("Supabase not configured") }),
+    }),
+    auth: {
+      signInWithPassword: () =>
+        Promise.resolve({ data: { user: null, session: null }, error: new Error("Supabase not configured") }),
+      signOut: () => Promise.resolve({ error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+      admin: {
+        listUsers: () => Promise.resolve({ data: { users: [] }, error: null }),
+        deleteUser: () => Promise.resolve({ data: null, error: null }),
+        createUser: () => Promise.resolve({ data: { user: { id: "mock" } }, error: null }),
+        getUserByEmail: () => Promise.resolve({ data: { user: null }, error: null }),
+      },
+      getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+    },
+    rpc: () => Promise.resolve({ data: null, error: null }),
+    sql: () => Promise.resolve({ data: null, error: null }),
+  } as any
 }
 
 // Criar um cliente singleton para evitar múltiplas instâncias
 let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null
 
 export const getSupabase = () => {
-  const { url: supabaseUrl, key: supabaseAnonKey } = getSupabaseCredentials()
+  // Obter as variáveis de ambiente explicitamente
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  // Verificar se as variáveis são URLs válidas e strings não vazias
+  if (!isValidUrl(supabaseUrl) || !supabaseAnonKey) {
+    console.error("Supabase URL inválida ou chave anônima ausente:", {
+      url: supabaseUrl ? "✓" : "✗",
+      key: supabaseAnonKey ? "✓" : "✗",
+    })
+
+    // Se estamos no cliente, mostrar um alerta
     if (isClient) {
-      // Redirecionar para a página de configuração se estamos no cliente
-      window.location.href = "/setup"
+      console.error("Erro de configuração: As credenciais do Supabase são inválidas. Verifique o arquivo .env.local.")
     }
-    throw new Error("Supabase URL and Anon Key are required. Please check your environment variables or setup page.")
+
+    return createMockClient()
   }
 
+  // Se já temos uma instância, retorná-la
   if (supabaseInstance) return supabaseInstance
 
-  supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  })
-  return supabaseInstance
+  // Criar uma nova instância
+  try {
+    // Aqui temos certeza que supabaseUrl e supabaseAnonKey são válidos
+    supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    })
+    return supabaseInstance
+  } catch (error) {
+    console.error("Error initializing Supabase client:", error)
+
+    if (isClient) {
+      console.error("Erro ao inicializar o cliente Supabase. Verifique o console para mais detalhes.")
+    }
+
+    return createMockClient()
+  }
 }
 
 // Para compatibilidade com o código existente
-export const supabase = isClient ? getSupabase() : null
+export const supabase = getSupabase()
 
 // Função para obter o cliente com o token de acesso do usuário atual
 export const getAuthenticatedSupabase = () => {
-  const supabase = getSupabase()
-
-  // Se estamos no cliente e temos um usuário logado, adicionar o token de acesso
-  if (isClient) {
-    const userStr = sessionStorage.getItem("currentUser")
-    if (userStr) {
-      const user = JSON.parse(userStr)
-      if (user.access_token) {
-        return supabase
-      }
-    }
-  }
-
-  return supabase
+  return getSupabase()
 }

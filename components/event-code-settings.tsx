@@ -1,68 +1,207 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getSupabase } from "@/lib/supabase"
+import { toast } from "@/components/ui/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
 
-// Dados de exemplo - em produção, viriam da API
-const initialEventCodes = [
-  {
-    id: 1,
-    eventType: "Falta",
-    statutoryCode: "101",
-    contractCode: "201",
-    temporaryCode: "301",
-  },
-  {
-    id: 2,
-    eventType: "Adicional Noturno",
-    statutoryCode: "102",
-    contractCode: "202",
-    temporaryCode: "302",
-  },
-  {
-    id: 3,
-    eventType: "Hora Extra 50%",
-    statutoryCode: "103",
-    contractCode: "203",
-    temporaryCode: "303",
-  },
-  {
-    id: 4,
-    eventType: "Hora Extra 100%",
-    statutoryCode: "104",
-    contractCode: "204",
-    temporaryCode: "304",
-  },
-  {
-    id: 5,
-    eventType: "Sobreaviso",
-    statutoryCode: "105",
-    contractCode: "205",
-    temporaryCode: "305",
-  },
-  {
-    id: 6,
-    eventType: "Férias",
-    statutoryCode: "106",
-    contractCode: "206",
-    temporaryCode: "306",
-  },
-]
+type EventCode = {
+  id: string
+  eventType: string
+  statutoryCode: string
+  contractCode: string
+  temporaryCode: string
+}
 
 export function EventCodeSettings() {
-  const [eventCodes, setEventCodes] = useState(initialEventCodes)
+  const [eventCodes, setEventCodes] = useState<EventCode[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
-  const handleInputChange = (id: number, field: string, value: string) => {
+  useEffect(() => {
+    async function loadEventCodes() {
+      try {
+        setLoading(true)
+        const supabase = getSupabase()
+        const currentUser = JSON.parse(sessionStorage.getItem("currentUser") || "{}")
+
+        if (!currentUser?.organization_id) {
+          console.error("Organização não identificada")
+          return
+        }
+
+        // Buscar tipos de eventos
+        const { data: eventTypes, error: eventTypesError } = await supabase.from("event_types").select("*")
+
+        if (eventTypesError) {
+          console.error("Erro ao buscar tipos de eventos:", eventTypesError)
+          return
+        }
+
+        // Buscar códigos de eventos
+        const { data: eventCodesData, error: eventCodesError } = await supabase
+          .from("event_codes")
+          .select("*")
+          .eq("organization_id", currentUser.organization_id)
+
+        if (eventCodesError) {
+          console.error("Erro ao buscar códigos de eventos:", eventCodesError)
+          return
+        }
+
+        // Mapear dados para o formato esperado pelo componente
+        const formattedCodes: EventCode[] = eventTypes.map((eventType) => {
+          const statutoryCode = eventCodesData.find(
+            (code) => code.event_type_id === eventType.id && code.contract_type === "EFETIVO",
+          )
+          const contractCode = eventCodesData.find(
+            (code) => code.event_type_id === eventType.id && code.contract_type === "COMISSIONADO",
+          )
+          const temporaryCode = eventCodesData.find(
+            (code) => code.event_type_id === eventType.id && code.contract_type === "TEMPORARIO",
+          )
+
+          return {
+            id: eventType.id,
+            eventType: eventType.label,
+            statutoryCode: statutoryCode?.code?.toString() || "",
+            contractCode: contractCode?.code?.toString() || "",
+            temporaryCode: temporaryCode?.code?.toString() || "",
+          }
+        })
+
+        setEventCodes(formattedCodes)
+      } catch (error) {
+        console.error("Erro ao carregar códigos de eventos:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadEventCodes()
+  }, [])
+
+  const handleInputChange = (id: string, field: string, value: string) => {
     setEventCodes((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)))
   }
 
-  const handleSave = () => {
-    // Em produção, isso salvaria os dados na API
-    alert("Configurações salvas com sucesso!")
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const supabase = getSupabase()
+      const currentUser = JSON.parse(sessionStorage.getItem("currentUser") || "{}")
+
+      if (!currentUser?.organization_id) {
+        toast({
+          title: "Erro",
+          description: "Organização não identificada",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Para cada tipo de evento, atualizar ou criar os códigos para cada tipo de contrato
+      for (const eventCode of eventCodes) {
+        // Estatutário (EFETIVO)
+        await upsertEventCode(
+          supabase,
+          currentUser.organization_id,
+          eventCode.id,
+          "EFETIVO",
+          Number.parseInt(eventCode.statutoryCode) || 0,
+        )
+
+        // Comissionado
+        await upsertEventCode(
+          supabase,
+          currentUser.organization_id,
+          eventCode.id,
+          "COMISSIONADO",
+          Number.parseInt(eventCode.contractCode) || 0,
+        )
+
+        // Temporário
+        await upsertEventCode(
+          supabase,
+          currentUser.organization_id,
+          eventCode.id,
+          "TEMPORARIO",
+          Number.parseInt(eventCode.temporaryCode) || 0,
+        )
+      }
+
+      toast({
+        title: "Sucesso",
+        description: "Configurações salvas com sucesso!",
+      })
+    } catch (error) {
+      console.error("Erro ao salvar configurações:", error)
+      toast({
+        title: "Erro",
+        description: "Ocorreu um erro ao salvar as configurações.",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Função auxiliar para inserir ou atualizar um código de evento
+  async function upsertEventCode(
+    supabase: any,
+    organizationId: string,
+    eventTypeId: string,
+    contractType: string,
+    code: number,
+  ) {
+    // Verificar se o código já existe
+    const { data, error: selectError } = await supabase
+      .from("event_codes")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("event_type_id", eventTypeId)
+      .eq("contract_type", contractType)
+      .single()
+
+    if (selectError && selectError.code !== "PGRST116") {
+      console.error("Erro ao verificar código existente:", selectError)
+      return
+    }
+
+    if (data) {
+      // Atualizar código existente
+      const { error: updateError } = await supabase.from("event_codes").update({ code }).eq("id", data.id)
+
+      if (updateError) {
+        console.error("Erro ao atualizar código:", updateError)
+      }
+    } else {
+      // Inserir novo código
+      const { error: insertError } = await supabase.from("event_codes").insert({
+        organization_id: organizationId,
+        event_type_id: eventTypeId,
+        contract_type: contractType,
+        code,
+      })
+
+      if (insertError) {
+        console.error("Erro ao inserir código:", insertError)
+      }
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    )
   }
 
   return (
@@ -109,9 +248,9 @@ export function EventCodeSettings() {
       </div>
 
       <div className="flex justify-end">
-        <Button className="gap-2" onClick={handleSave}>
+        <Button className="gap-2" onClick={handleSave} disabled={saving}>
           <Save className="h-4 w-4" />
-          Salvar Configurações
+          {saving ? "Salvando..." : "Salvar Configurações"}
         </Button>
       </div>
     </div>

@@ -4,18 +4,41 @@ import type React from "react"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, HelpCircle, Loader2, Users } from "lucide-react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { getSupabase } from "@/lib/supabase"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+
+type TestUser = {
+  email: string
+  password: string
+  name: string
+  role: string
+  unit: string | null
+}
 
 export function LoginForm() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [isSettingUpTestUser, setIsSettingUpTestUser] = useState(false)
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+  const [setupSuccess, setSetupSuccess] = useState(false)
+  const [testUsers, setTestUsers] = useState<TestUser[]>([])
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -33,60 +56,66 @@ export function LoginForm() {
     setError("")
 
     try {
-      const supabase = getSupabase()
-
-      // Usar a API de autenticação do Supabase
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: formData.email,
-        password: formData.password,
+      // Tentar login com a API alternativa
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
       })
 
-      if (signInError) {
-        console.error("Erro de autenticação:", signInError)
-        setError("Credenciais inválidas. Por favor, tente novamente.")
+      const data = await response.json()
+
+      if (response.ok) {
+        // Armazenar informações do usuário na sessão
+        sessionStorage.setItem(
+          "currentUser",
+          JSON.stringify({
+            ...data.user,
+            access_token: "mock-token", // Token fictício para teste
+          }),
+        )
+
+        // Redirecionar para o dashboard
+        router.push("/dashboard")
         return
+      } else {
+        console.error("Erro no login:", data.message)
+        setError(`Erro de autenticação: ${data.message}`)
       }
-
-      if (!data.user || !data.session) {
-        setError("Erro ao autenticar. Por favor, tente novamente.")
-        return
-      }
-
-      // Buscar informações adicionais do usuário na tabela users
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("email", data.user.email)
-        .single()
-
-      if (userError) {
-        console.error("Erro ao buscar dados do usuário:", userError)
-        setError("Erro ao buscar informações do usuário.")
-        return
-      }
-
-      // Armazenar informações do usuário na sessão
-      sessionStorage.setItem(
-        "currentUser",
-        JSON.stringify({
-          id: userData.id,
-          name: userData.name,
-          email: userData.email,
-          role: userData.role,
-          organization_id: userData.organization_id,
-          unit_id: userData.unit_id,
-          // Incluir token de acesso para uso em requisições autenticadas
-          access_token: data.session.access_token,
-        }),
-      )
-
-      // Redirecionar para o dashboard
-      router.push("/dashboard")
     } catch (err) {
       console.error("Erro no processo de login:", err)
       setError("Ocorreu um erro ao tentar fazer login. Por favor, tente novamente.")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const setupTestUser = async (email = "admin@example.com", password = "password") => {
+    setFormData({
+      email,
+      password,
+    })
+    setSetupSuccess(true)
+  }
+
+  const loadTestUsers = async () => {
+    setIsLoadingUsers(true)
+    try {
+      const response = await fetch("/api/setup-test-users")
+      const data = await response.json()
+
+      if (response.ok) {
+        setTestUsers(data.users)
+      } else {
+        setError(`Erro ao carregar usuários de teste: ${data.message}`)
+      }
+    } catch (err) {
+      console.error("Erro ao carregar usuários de teste:", err)
+      setError("Ocorreu um erro ao carregar os usuários de teste.")
+    } finally {
+      setIsLoadingUsers(false)
     }
   }
 
@@ -96,6 +125,14 @@ export function LoginForm() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {setupSuccess && (
+        <Alert className="bg-green-50 text-green-800 border-green-500">
+          <AlertDescription>
+            Credenciais preenchidas com sucesso! Clique em "Entrar" para acessar o sistema.
+          </AlertDescription>
         </Alert>
       )}
 
@@ -125,9 +162,148 @@ export function LoginForm() {
         />
       </div>
 
-      <Button type="submit" className="w-full" disabled={isLoading}>
-        {isLoading ? "Entrando..." : "Entrar"}
-      </Button>
+      <div className="flex flex-col gap-3">
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Entrando...
+            </>
+          ) : (
+            "Entrar"
+          )}
+        </Button>
+
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" type="button" className="w-full flex gap-2">
+              <HelpCircle className="h-4 w-4" />
+              Preciso de ajuda para entrar
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Ajuda para Login</DialogTitle>
+              <DialogDescription>
+                Se você está tendo problemas para fazer login, você pode usar as credenciais de teste.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Tabs defaultValue="users" className="mt-4">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="users">Usuários de Teste</TabsTrigger>
+                <TabsTrigger value="admin">Admin Rápido</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="users" className="py-4">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm">Selecione um usuário para testar:</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={loadTestUsers}
+                      disabled={isLoadingUsers}
+                      className="flex gap-2"
+                    >
+                      {isLoadingUsers ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Carregando...
+                        </>
+                      ) : (
+                        <>
+                          <Users className="h-4 w-4" />
+                          Carregar Usuários
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {testUsers.length > 0 ? (
+                    <div className="border rounded-md overflow-hidden">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Nome</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Perfil</TableHead>
+                            <TableHead>Ação</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {testUsers.map((user) => (
+                            <TableRow key={user.email}>
+                              <TableCell className="font-medium">{user.name}</TableCell>
+                              <TableCell>{user.email}</TableCell>
+                              <TableCell>
+                                <Badge variant={user.role === "admin" ? "default" : "outline"}>
+                                  {user.role === "admin" ? "Admin" : "Responsável"}
+                                </Badge>
+                                {user.unit && <div className="text-xs text-gray-500 mt-1">{user.unit}</div>}
+                              </TableCell>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setupTestUser(user.email, user.password)}
+                                >
+                                  Usar
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      {isLoadingUsers ? (
+                        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+                      ) : (
+                        <Users className="h-8 w-8 mx-auto mb-2" />
+                      )}
+                      <p>
+                        {isLoadingUsers ? "Carregando usuários..." : "Clique em 'Carregar Usuários' para ver as opções"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="admin" className="py-4">
+                <div className="space-y-4">
+                  <p className="text-sm mb-4">Use as credenciais de administrador para acesso rápido:</p>
+                  <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-md mb-4">
+                    <p>
+                      <strong>Email:</strong> admin@example.com
+                    </p>
+                    <p>
+                      <strong>Senha:</strong> password
+                    </p>
+                  </div>
+                  <Button onClick={() => setupTestUser()} disabled={isSettingUpTestUser} className="w-full">
+                    {isSettingUpTestUser ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Configurando...
+                      </>
+                    ) : (
+                      "Usar Credenciais de Admin"
+                    )}
+                  </Button>
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <DialogFooter className="mt-4">
+              <p className="text-xs text-gray-500 w-full text-center">
+                Após selecionar as credenciais, clique em "Entrar" para acessar o sistema.
+              </p>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </form>
   )
 }

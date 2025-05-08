@@ -10,8 +10,8 @@ import { getSupabase } from "@/lib/supabase"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 
-// Importar jsPDF e jspdf-autotable diretamente
-// Isso funciona porque estamos usando 'use client'
+// Importar jsPDF e jspdf-autotable
+// Não tente inicializar o plugin aqui, apenas importe os módulos
 import { jsPDF } from "jspdf"
 import "jspdf-autotable"
 
@@ -178,23 +178,14 @@ export function AttendancePreview() {
       }
     }
 
-    fetchFrequencyData()
+    if (selectedUnit && selectedMonth && selectedYear) {
+      fetchFrequencyData()
+    }
   }, [selectedUnit, selectedMonth, selectedYear, toast])
 
   // Função para gerar o PDF
   const generatePDF = async (employees: any[], frequencyEntries: any[]) => {
     try {
-      // Verificar se jsPDF está disponível
-      if (typeof jsPDF !== "function") {
-        console.error("jsPDF não está disponível")
-        toast({
-          title: "Erro ao gerar PDF",
-          description: "Não foi possível gerar o PDF. A biblioteca não está disponível.",
-          variant: "destructive",
-        })
-        return
-      }
-
       // Criar novo documento PDF
       const doc = new jsPDF({
         orientation: "landscape",
@@ -202,14 +193,11 @@ export function AttendancePreview() {
         format: "a4",
       })
 
-      // Verificar se autoTable está disponível
-      if (typeof doc.autoTable !== "function") {
-        console.error("jsPDF-autotable não está disponível")
-        toast({
-          title: "Erro ao gerar PDF",
-          description: "Não foi possível gerar o PDF. A biblioteca de tabelas não está disponível.",
-          variant: "destructive",
-        })
+      // Verificar se autoTable está disponível no objeto doc
+      if (typeof (doc as any).autoTable !== "function") {
+        console.error("jsPDF-autotable não está disponível no objeto doc")
+        // Usar alternativa HTML em vez de tentar usar autoTable
+        handleGenerateHTML(employees, frequencyEntries)
         return
       }
 
@@ -293,8 +281,8 @@ export function AttendancePreview() {
         ]
       })
 
-      // Adicionar tabela
-      doc.autoTable({
+      // Adicionar tabela usando o método autoTable
+      ;(doc as any).autoTable({
         startY: logoUrl ? 80 : 50,
         head: [
           [
@@ -338,9 +326,11 @@ export function AttendancePreview() {
       console.error("Erro ao gerar PDF:", error)
       toast({
         title: "Erro ao gerar PDF",
-        description: "Não foi possível gerar o PDF. Tente novamente mais tarde.",
+        description: "Não foi possível gerar o PDF. Usando alternativa HTML.",
         variant: "destructive",
       })
+      // Usar alternativa HTML em caso de erro
+      handleGenerateHTML(employees, frequencyEntries)
     }
   }
 
@@ -405,6 +395,135 @@ export function AttendancePreview() {
       toast({
         title: "Não é possível regenerar o PDF",
         description: "Não há dados suficientes para gerar o PDF.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Implementar uma alternativa para quando o PDF não puder ser gerado
+  const handleGenerateHTML = (employees: any[], frequencyEntries: any[]) => {
+    if (!selectedUnit || employees.length === 0 || frequencyEntries.length === 0) {
+      toast({
+        title: "Dados insuficientes",
+        description: "Selecione uma unidade, mês e ano com dados disponíveis.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const unitName = units.find((u) => u.id === selectedUnit)?.name || ""
+      const monthName = months.find((m) => m.value === selectedMonth)?.label || ""
+      const yearName = selectedYear
+
+      // Criar conteúdo HTML para impressão
+      let printContent = `
+        <html>
+        <head>
+          <title>Folha de Frequência</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .header { text-align: center; margin-bottom: 20px; }
+            .logo { max-height: 60px; margin-bottom: 10px; }
+            h1 { margin: 5px 0; }
+            .unit-info { text-align: center; margin-bottom: 30px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+            .signature { margin-top: 30px; }
+            .signature-line { border-top: 1px solid #000; width: 300px; display: inline-block; margin-top: 5px; }
+            @media print {
+              .no-print { display: none; }
+              body { margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="no-print">
+            <button onclick="window.print()">Imprimir</button>
+            <button onclick="window.close()">Fechar</button>
+          </div>
+          <div class="header">
+            ${logoUrl ? `<img src="${logoUrl}" class="logo" alt="Logo" />` : ""}
+            <h1>${organizationName}</h1>
+            <h2>Folha de Frequência - ${unitName.toUpperCase()}</h2>
+            <p>${monthName.toUpperCase()} / ${yearName}</p>
+          </div>
+          
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Cargo</th>
+                <th>Vínculo</th>
+                <th>Faltas</th>
+                <th>Ad. Not.</th>
+                <th>HE 50%</th>
+                <th>HE 100%</th>
+                <th>Sobreaviso</th>
+                <th>Férias</th>
+                <th>Justificativa</th>
+              </tr>
+            </thead>
+            <tbody>
+      `
+
+      // Adicionar linhas da tabela
+      employees.forEach((employee) => {
+        const entry = frequencyEntries.find((e) => e.employee_id === employee.id)
+
+        printContent += `
+          <tr>
+            <td>${employee.name}</td>
+            <td>${employee.role}</td>
+            <td>${employee.contract_type}</td>
+            <td>${entry ? entry.absence_days : 0}</td>
+            <td>${entry ? entry.additional_night_hours : 0}</td>
+            <td>${entry ? entry.overtime_50_hours : 0}</td>
+            <td>${entry ? entry.overtime_100_hours : 0}</td>
+            <td>${entry ? entry.on_call_hours : 0}</td>
+            <td>${entry ? entry.vacation_days : 0}</td>
+            <td>${entry ? entry.justification || "" : ""}</td>
+          </tr>
+        `
+      })
+
+      printContent += `
+            </tbody>
+          </table>
+          
+          <div class="signature">
+            <p><strong>Assinatura do Coordenador:</strong> <span class="signature-line"></span></p>
+            <p><strong>Data:</strong> ____/____/________</p>
+          </div>
+        </body>
+        </html>
+      `
+
+      // Abrir nova janela com o conteúdo HTML
+      const printWindow = window.open("", "_blank")
+      if (!printWindow) {
+        toast({
+          title: "Bloqueador de pop-up ativo",
+          description: "Desative o bloqueador de pop-ups e tente novamente.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      printWindow.document.open()
+      printWindow.document.write(printContent)
+      printWindow.document.close()
+
+      // Criar um blob HTML para visualização no iframe
+      const htmlBlob = new Blob([printContent], { type: "text/html" })
+      const htmlUrl = URL.createObjectURL(htmlBlob)
+      setPdfUrl(htmlUrl)
+    } catch (error) {
+      console.error("Erro ao gerar HTML:", error)
+      toast({
+        title: "Erro ao gerar visualização",
+        description: "Não foi possível gerar a visualização HTML.",
         variant: "destructive",
       })
     }
@@ -491,7 +610,10 @@ export function AttendancePreview() {
                   Imprimir
                 </Button>
                 <Button onClick={handleRegeneratePDF} variant="outline">
-                  Regenerar PDF
+                  Regenerar
+                </Button>
+                <Button onClick={() => handleGenerateHTML(employees, frequencyData)} variant="outline">
+                  Visualizar HTML
                 </Button>
               </div>
             </div>

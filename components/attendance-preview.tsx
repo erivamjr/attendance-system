@@ -7,17 +7,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { getSupabase } from "@/lib/supabase"
-import { jsPDF } from "jspdf"
-import "jspdf-autotable"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 
-// Adicione esta linha para resolver o erro de tipos do jsPDF-autotable
-declare module "jspdf" {
-  interface jsPDF {
-    autoTable: (options: any) => jsPDF
-  }
-}
+// Importar jsPDF e jspdf-autotable diretamente
+// Isso funciona porque estamos usando 'use client'
+import { jsPDF } from "jspdf"
+import "jspdf-autotable"
 
 export function AttendancePreview() {
   const [loading, setLoading] = useState(true)
@@ -57,8 +53,19 @@ export function AttendancePreview() {
         const { data: orgData } = await supabase.from("organizations").select("name, logo_url").single()
 
         if (orgData) {
-          setOrganizationName(orgData.name)
-          setLogoUrl(orgData.logo_url)
+          setOrganizationName(orgData.name || "")
+
+          if (orgData.logo_url) {
+            try {
+              // Obter URL pública para o logo
+              const { data } = supabase.storage.from("logos").getPublicUrl(orgData.logo_url.split("/").pop() || "")
+              if (data?.publicUrl) {
+                setLogoUrl(data.publicUrl)
+              }
+            } catch (error) {
+              console.error("Erro ao obter URL do logo:", error)
+            }
+          }
         }
 
         // Buscar unidades
@@ -87,7 +94,7 @@ export function AttendancePreview() {
     }
 
     fetchUnits()
-  }, [toast])
+  }, [toast, selectedUnit])
 
   // Buscar dados da folha de frequência quando unidade, mês ou ano mudar
   useEffect(() => {
@@ -177,6 +184,17 @@ export function AttendancePreview() {
   // Função para gerar o PDF
   const generatePDF = async (employees: any[], frequencyEntries: any[]) => {
     try {
+      // Verificar se jsPDF está disponível
+      if (typeof jsPDF !== "function") {
+        console.error("jsPDF não está disponível")
+        toast({
+          title: "Erro ao gerar PDF",
+          description: "Não foi possível gerar o PDF. A biblioteca não está disponível.",
+          variant: "destructive",
+        })
+        return
+      }
+
       // Criar novo documento PDF
       const doc = new jsPDF({
         orientation: "landscape",
@@ -184,47 +202,53 @@ export function AttendancePreview() {
         format: "a4",
       })
 
+      // Verificar se autoTable está disponível
+      if (typeof doc.autoTable !== "function") {
+        console.error("jsPDF-autotable não está disponível")
+        toast({
+          title: "Erro ao gerar PDF",
+          description: "Não foi possível gerar o PDF. A biblioteca de tabelas não está disponível.",
+          variant: "destructive",
+        })
+        return
+      }
+
       // Adicionar logo se existir
       if (logoUrl) {
         try {
-          const supabase = getSupabase()
-          const { data } = supabase.storage.from("logos").getPublicUrl(logoUrl.split("/").pop() || "")
+          // Carregar a imagem
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          img.src = logoUrl
 
-          if (data?.publicUrl) {
-            // Carregar a imagem
-            const img = new Image()
-            img.crossOrigin = "anonymous"
-            img.src = data.publicUrl
+          await new Promise((resolve, reject) => {
+            img.onload = resolve
+            img.onerror = reject
+          })
 
-            await new Promise((resolve, reject) => {
-              img.onload = resolve
-              img.onerror = reject
-            })
+          // Calcular dimensões para manter proporção e centralizar
+          const maxWidth = 50
+          const maxHeight = 30
+          let imgWidth = img.width
+          let imgHeight = img.height
 
-            // Calcular dimensões para manter proporção e centralizar
-            const maxWidth = 50
-            const maxHeight = 30
-            let imgWidth = img.width
-            let imgHeight = img.height
-
-            if (imgWidth > maxWidth) {
-              const ratio = maxWidth / imgWidth
-              imgWidth = maxWidth
-              imgHeight = imgHeight * ratio
-            }
-
-            if (imgHeight > maxHeight) {
-              const ratio = maxHeight / imgHeight
-              imgHeight = maxHeight
-              imgWidth = imgWidth * ratio
-            }
-
-            // Centralizar logo
-            const pageWidth = doc.internal.pageSize.getWidth()
-            const x = (pageWidth - imgWidth) / 2
-
-            doc.addImage(img, "PNG", x, 10, imgWidth, imgHeight)
+          if (imgWidth > maxWidth) {
+            const ratio = maxWidth / imgWidth
+            imgWidth = maxWidth
+            imgHeight = imgHeight * ratio
           }
+
+          if (imgHeight > maxHeight) {
+            const ratio = maxHeight / imgHeight
+            imgHeight = maxHeight
+            imgWidth = imgWidth * ratio
+          }
+
+          // Centralizar logo
+          const pageWidth = doc.internal.pageSize.getWidth()
+          const x = (pageWidth - imgWidth) / 2
+
+          doc.addImage(img, "PNG", x, 10, imgWidth, imgHeight)
         } catch (error) {
           console.error("Erro ao carregar logo:", error)
         }
@@ -235,19 +259,19 @@ export function AttendancePreview() {
       const monthName = months.find((m) => m.value === selectedMonth)?.label || ""
       const yearName = selectedYear
 
-      // doc.setFontSize(16)
-      // doc.text(organizationName, doc.internal.pageSize.getWidth() / 2, logoUrl ? 50 : 20, { align: "center" })
+      doc.setFontSize(16)
+      doc.text(organizationName, doc.internal.pageSize.getWidth() / 2, logoUrl ? 50 : 20, { align: "center" })
 
       doc.setFontSize(14)
       doc.text(
         `FOLHA DE FREQUÊNCIA - ${unitName.toUpperCase()}`,
         doc.internal.pageSize.getWidth() / 2,
-        logoUrl ? 40 : 30,
+        logoUrl ? 60 : 30,
         { align: "center" },
       )
 
       doc.setFontSize(12)
-      doc.text(`${monthName.toUpperCase()} / ${yearName}`, doc.internal.pageSize.getWidth() / 2, logoUrl ? 50 : 40, {
+      doc.text(`${monthName.toUpperCase()} / ${yearName}`, doc.internal.pageSize.getWidth() / 2, logoUrl ? 70 : 40, {
         align: "center",
       })
 
@@ -271,7 +295,7 @@ export function AttendancePreview() {
 
       // Adicionar tabela
       doc.autoTable({
-        startY: logoUrl ? 60 : 50,
+        startY: logoUrl ? 80 : 50,
         head: [
           [
             "Nome",
@@ -373,6 +397,19 @@ export function AttendancePreview() {
     })
   }
 
+  // Função para regenerar o PDF
+  const handleRegeneratePDF = () => {
+    if (employees.length > 0 && frequencyData.length > 0) {
+      generatePDF(employees, frequencyData)
+    } else {
+      toast({
+        title: "Não é possível regenerar o PDF",
+        description: "Não há dados suficientes para gerar o PDF.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -452,6 +489,9 @@ export function AttendancePreview() {
                 </Button>
                 <Button onClick={handlePrintPDF} variant="outline">
                   Imprimir
+                </Button>
+                <Button onClick={handleRegeneratePDF} variant="outline">
+                  Regenerar PDF
                 </Button>
               </div>
             </div>

@@ -25,24 +25,10 @@ type UserFormProps = {
     email: string
     cpf: string
     role: string
-    unit_id: string | null
+    unit_id?: string | null
+    unit?: string | null
     status: string
   }
-}
-
-// Função para gerar um UUID v4
-function generateUUID() {
-  // Verificar se o navegador suporta crypto.randomUUID()
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID()
-  }
-
-  // Fallback para navegadores que não suportam randomUUID
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === "x" ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
 }
 
 export function UserForm({ onSuccess, onCancel, editUser }: UserFormProps) {
@@ -113,8 +99,10 @@ export function UserForm({ onSuccess, onCancel, editUser }: UserFormProps) {
           .from("users")
           .update({
             name: formData.name,
+            cpf: formData.cpf,
             role: formData.role,
             unit_id: formData.unit_id === "none" ? null : formData.unit_id || null,
+            is_active: formData.status === "Ativo",
           })
           .eq("id", editUser.id)
 
@@ -134,6 +122,7 @@ export function UserForm({ onSuccess, onCancel, editUser }: UserFormProps) {
           body: JSON.stringify({
             name: formData.name,
             email: formData.email,
+            cpf: formData.cpf,
             role: formData.role,
             organization_id: currentUser.organization_id,
             unit_id: formData.unit_id === "none" ? null : formData.unit_id || null,
@@ -193,14 +182,7 @@ export function UserForm({ onSuccess, onCancel, editUser }: UserFormProps) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="cpf">CPF</Label>
-        <Input
-          id="cpf"
-          name="cpf"
-          value={formData.cpf}
-          onChange={handleChange}
-          required
-          placeholder="Ex: 123.456.789-00"
-        />
+        <Input id="cpf" name="cpf" value={formData.cpf} onChange={handleChange} placeholder="Ex: 123.456.789-00" />
       </div>
       <div className="space-y-2">
         <Label htmlFor="role">Perfil</Label>
@@ -246,6 +228,20 @@ export function UserForm({ onSuccess, onCancel, editUser }: UserFormProps) {
             placeholder="Deixe em branco para senha padrão"
           />
           <p className="text-xs text-muted-foreground">Se não informada, será criada uma senha padrão.</p>
+        </div>
+      )}
+      {editUser && (
+        <div className="space-y-2">
+          <Label htmlFor="status">Status</Label>
+          <Select value={formData.status} onValueChange={(value) => handleSelectChange("status", value)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione o status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Ativo">Ativo</SelectItem>
+              <SelectItem value="Inativo">Inativo</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )}
       <div className="flex justify-end gap-2">

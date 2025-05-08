@@ -69,8 +69,12 @@ export function UserManagementTable({ users, onEdit, onToggleStatus, onRefresh }
             <TableCell className="font-medium">{user.name}</TableCell>
             <TableCell>
               {user.email}
-              <br />
-              <span className="text-xs text-muted-foreground">{user.cpf}</span>
+              {user.cpf && (
+                <>
+                  <br />
+                  <span className="text-xs text-muted-foreground">{user.cpf}</span>
+                </>
+              )}
             </TableCell>
             <TableCell>{user.role === "admin" ? "Admin" : "Responsável"}</TableCell>
             <TableCell>{user.unit || "—"}</TableCell>

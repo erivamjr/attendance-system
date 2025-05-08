@@ -4,7 +4,7 @@ import { getSupabase } from "@/lib/supabase"
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, email, role, organization_id, unit_id } = body
+    const { name, email, cpf, role, organization_id, unit_id } = body
 
     if (!name || !email || !role || !organization_id) {
       return NextResponse.json({ message: "Dados incompletos" }, { status: 400 })
@@ -22,10 +22,12 @@ export async function POST(request: Request) {
         id: userId,
         name,
         email,
+        cpf,
         password_hash: "password", // Senha fictícia para teste
         role,
         organization_id,
         unit_id: unit_id === "none" ? null : unit_id || null,
+        is_active: true,
       })
       .select()
 

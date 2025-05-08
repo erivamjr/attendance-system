@@ -10,7 +10,7 @@ export default function DashboardLayout({
   return (
     <AuthProvider>
       <div className="flex min-h-screen flex-col md:flex-row">
-        <SidebarNav />
+        <SidebarNav className="w-64 shrink-0" />
         <main className="flex-1 p-4 md:p-6">{children}</main>
       </div>
     </AuthProvider>

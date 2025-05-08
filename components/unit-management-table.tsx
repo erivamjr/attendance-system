@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Edit, MoreHorizontal, Users, Plus, Trash } from "lucide-react"
+import { Edit, MoreHorizontal, Users, Plus, Trash, Power } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ import { getSupabase } from "@/lib/supabase"
 import { toast } from "@/components/ui/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmployeeForm } from "@/components/employee-form"
+import { Badge } from "@/components/ui/badge"
 
 type Unit = {
   id: string
@@ -26,6 +27,7 @@ type Unit = {
   location: string
   responsible: string | null
   employeeCount: number
+  is_active?: boolean
 }
 
 type Employee = {
@@ -124,6 +126,36 @@ export function UnitManagementTable({ units, onEdit, onRefresh }: UnitManagement
     }
   }
 
+  // Nova função para desativar/ativar unidade
+  const handleToggleUnitStatus = async (unit: Unit) => {
+    const newStatus = unit.is_active === false
+    const actionText = newStatus ? "ativar" : "desativar"
+
+    if (!confirm(`Tem certeza que deseja ${actionText} esta unidade?`)) return
+
+    try {
+      const supabase = getSupabase()
+      const { error } = await supabase.from("units").update({ is_active: newStatus }).eq("id", unit.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Sucesso",
+        description: `Unidade ${newStatus ? "ativada" : "desativada"} com sucesso!`,
+      })
+
+      // Atualizar a lista de unidades
+      onRefresh()
+    } catch (error) {
+      console.error(`Erro ao ${actionText} unidade:`, error)
+      toast({
+        title: "Erro",
+        description: `Ocorreu um erro ao ${actionText} a unidade.`,
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleEmployeeFormSuccess = async () => {
     setShowAddEmployeeDialog(false)
     setShowEditEmployeeDialog(false)
@@ -173,16 +205,26 @@ export function UnitManagementTable({ units, onEdit, onRefresh }: UnitManagement
             <TableHead>Endereço</TableHead>
             <TableHead>Responsável</TableHead>
             <TableHead>Servidores</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead className="text-right">Ações</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {units.map((unit) => (
-            <TableRow key={unit.id}>
+            <TableRow key={unit.id} className={unit.is_active === false ? "opacity-60" : ""}>
               <TableCell className="font-medium">{unit.name}</TableCell>
               <TableCell>{unit.location}</TableCell>
               <TableCell>{unit.responsible || "Não atribuído"}</TableCell>
               <TableCell>{unit.employeeCount}</TableCell>
+              <TableCell>
+                {unit.is_active === false ? (
+                  <Badge variant="secondary">Inativa</Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-green-50 text-green-700 hover:bg-green-50">
+                    Ativa
+                  </Badge>
+                )}
+              </TableCell>
               <TableCell className="text-right">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -201,6 +243,13 @@ export function UnitManagementTable({ units, onEdit, onRefresh }: UnitManagement
                     <DropdownMenuItem onClick={() => handleViewEmployees(unit)}>
                       <Users className="mr-2 h-4 w-4" />
                       Ver servidores
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleToggleUnitStatus(unit)}
+                      className={unit.is_active === false ? "text-green-600" : "text-red-600"}
+                    >
+                      <Power className="mr-2 h-4 w-4" />
+                      {unit.is_active === false ? "Ativar" : "Desativar"}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

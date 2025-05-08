@@ -1,7 +1,7 @@
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AttendanceForm } from "@/components/attendance-form"
+import { AttendancePreview } from "@/components/attendance-preview"
 
 export default function AttendancePage() {
   return (
@@ -34,14 +34,8 @@ export default function AttendancePage() {
               <CardTitle>Visualização da Folha de Frequência</CardTitle>
               <CardDescription>Visualize a folha antes de finalizar</CardDescription>
             </CardHeader>
-            <CardContent className="flex justify-center">
-              <div className="border p-4 text-center">
-                <p className="mb-4">Visualização do PDF será exibida aqui</p>
-                <div className="flex justify-center gap-2">
-                  <Button variant="outline">Baixar PDF</Button>
-                  <Button variant="outline">Imprimir</Button>
-                </div>
-              </div>
+            <CardContent>
+              <AttendancePreview />
             </CardContent>
           </Card>
         </TabsContent>
